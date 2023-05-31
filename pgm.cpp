@@ -30,7 +30,7 @@ PGMImage::PGMImage(char *fname)
 
    fscanf(ifile, "%*s %i %i %i", &x_dim, &y_dim, &num_colors);
 
-   getline((char **)&buff, &temp, ifile); // eliminate CR-LF
+   //getline((char **)&buff, &temp, ifile); // eliminate CR-LF
    
    assert(x_dim >1 && y_dim >1 && num_colors >1);
    pixels = new unsigned char[x_dim * y_dim];
