@@ -169,7 +169,7 @@ int main (int argc, char **argv)
 
   //////////////////////////////////////////////////// test
   vector<tuple<int, int, int, int>> lines;
-  int threshold = 395;
+  int threshold = 50;
   float rMax = sqrt (1.0 * w * w + 1.0 * h * h) / 2;
   //cout << "Empieza a buscar lineas" << endl;
   for (i = 0; i < degreeBins * rBins; i++)
