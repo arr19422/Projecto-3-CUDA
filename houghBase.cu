@@ -15,7 +15,10 @@
 #include <corecrt_math_defines.h>
 #include <cuda.h>
 #include <string.h>
+#include <tuple>
+#include <vector>
 #include "pgm.h"
+#include "CImg.h"
 
 using namespace std;
 
@@ -25,33 +28,61 @@ const int rBins = 100;
 const float radInc = degreeInc * M_PI / 180;
 //*****************************************************************
 // The CPU function returns a pointer to the accummulator
-void CPU_HoughTran (unsigned char *pic, int w, int h, int **acc)
+void CPU_HoughTran (unsigned char *pic, int w, int h, vector<tuple<int, int, int, int, int>> *acc)
 {
   float rMax = sqrt (1.0 * w * w + 1.0 * h * h) / 2;  //(w^2 + h^2)/2, radio max equivalente a centro -> esquina
-  *acc = new int[rBins * degreeBins];            //el acumulador, conteo depixeles encontrados, 90*180/degInc = 9000
-  memset (*acc, 0, sizeof (int) * rBins * degreeBins); //init en ceros
+  //*acc = new int[rBins * degreeBins];            //el acumulador, conteo depixeles encontrados, 90*180/degInc = 9000
+  //memset (*acc, 0, sizeof (int) * rBins * degreeBins); //init en ceros
+  // inicializar el acumulador en ceros
+  //*acc = vector<tuple<int, int, int>>(rBins * degreeBins, make_tuple(0, 0, 0));
   int xCent = w / 2;
   int yCent = h / 2;
   float rScale = 2 * rMax / rBins;
 
-  for (int i = 0; i < w; i++) //por cada pixel
+  //cout << "rMax: " << rMax << endl;
+  //cout << "xCent: " << xCent << endl;
+  //cout << "yCent: " << yCent << endl;
+  //cout << "rScale: " << rScale << endl;
+
+  bool continueloop = true;
+
+  for (int i = 0; i < w; i++) { //por cada pixel
     for (int j = 0; j < h; j++) //...
+    {
+      int idx = j * w + i;
+      if (pic[idx] > 10 && continueloop) //si pasa thresh, entonces lo marca
       {
-        int idx = j * w + i;
-        if (pic[idx] > 0) //si pasa thresh, entonces lo marca
-          {
-            int xCoord = i - xCent;
-            int yCoord = yCent - j;  // y-coord has to be reversed
-            float theta = 0;         // actual angle
-            for (int tIdx = 0; tIdx < degreeBins; tIdx++) //add 1 to all lines in that pixel
-              {
-                float r = xCoord * cos (theta) + yCoord * sin (theta);
-                int rIdx = (r + rMax) / rScale;
-                (*acc)[rIdx * degreeBins + tIdx]++; //+1 para este radio r y este theta
-                theta += radInc;
-              }
-          }
+        int xCoord = i - xCent;
+        int yCoord = yCent - j;  // y-coord has to be reversed
+        //float theta = 0;         // actual angle
+        //cout << "xCoord: " << xCoord << endl;
+        //cout << "yCoord: " << yCoord << endl;
+        // recorre de 0 a pi, pero por indices
+        for (int tIdx = 0; tIdx < degreeBins; tIdx++) //add 1 to all lines in that pixel
+        {
+          //cout << "------------------------------------" << endl;
+          float theta = tIdx * radInc;
+          //cout << "theta: " << theta << endl;
+          float r = xCoord * cos (theta) + yCoord * sin (theta);
+          //cout << "r: " << r << endl;
+          //xint rIdx = (r + rMax) / rScale;
+          int rIdx = static_cast<int>((r + rMax) / rScale);
+          //float rIdx = (r + rMax) / rScale;
+          //cout << "rIdx: " << rIdx << endl;
+          //cout << "acc index: " << rIdx * degreeBins + tIdx << endl;
+          // +1 para este radio r y este theta
+          acc->at(rIdx * degreeBins + tIdx) = make_tuple(rIdx, tIdx, xCoord, yCoord, get<4>(acc->at(rIdx * degreeBins + tIdx)) + 1);
+          //cout << "acc: " << get<4>(acc->at(rIdx * degreeBins + tIdx)) << endl;
+          //xtheta += radInc;
+          //x//cout << "theta: " << theta << endl;
+        }
+        /*if (i == (w/2)) {
+          continueloop = false;
+        }*/
+        //continueloop = false;
       }
+    }
+  }
 }
 
 //*****************************************************************
@@ -114,9 +145,11 @@ int main (int argc, char **argv)
 
   PGMImage inImg (argv[1]);
 
-  int *cpuht;
+  vector<tuple<int, int, int, int, int>> *cpuht = new vector<tuple<int, int, int, int, int>>(degreeBins * rBins, make_tuple(0, 0, 0, 0, 0));
   int w = inImg.x_dim;
   int h = inImg.y_dim;
+
+  //cout << "size: " << w << " x " << h << endl;
 
   float* d_Cos;
   float* d_Sin;
@@ -124,8 +157,99 @@ int main (int argc, char **argv)
   cudaMalloc ((void **) &d_Cos, sizeof (float) * degreeBins);
   cudaMalloc ((void **) &d_Sin, sizeof (float) * degreeBins);
 
+  //cout << "cpuht size: " << cpuht->size() << endl;
+  //cout << "quick view of cpuht: " << endl;
+  for (i = 0; i < 10; i++)
+  {
+    //cout << get<0>(cpuht->at(i)) << " " << get<1>(cpuht->at(i)) << " " << get<2>(cpuht->at(i)) << endl;
+  }
+
   // CPU calculation
-  CPU_HoughTran(inImg.pixels, w, h, &cpuht);
+  CPU_HoughTran(inImg.pixels, w, h, cpuht);
+
+  //////////////////////////////////////////////////// test
+  vector<tuple<int, int, int, int>> lines;
+  int threshold = 395;
+  float rMax = sqrt (1.0 * w * w + 1.0 * h * h) / 2;
+  //cout << "Empieza a buscar lineas" << endl;
+  for (i = 0; i < degreeBins * rBins; i++)
+  {
+    //cout << "vote at: " << i << ": " << get<4>(cpuht->at(i)) << endl;
+    if (get<4>(cpuht->at(i)) > threshold)
+    {
+      //cout << "------------------------------------" << endl;
+      //cout << "indice: " << i << endl;
+      // convierte  theta de radianes a grados
+      float theta = get<1>(cpuht->at(i)) * degreeInc * M_PI / 180;
+      //cout << "theta: " << theta << endl;
+      // convierte r de indice a valor real
+      float r = (get<0>(cpuht->at(i)) * 2 * rMax / rBins) - rMax;
+      //cout << "r: " << r << endl;
+      // calcula los puntos de la linea
+      // si theta es 0, entonces es una linea vertical
+      if (theta == 0.0)
+      {
+        lines.push_back(make_tuple(static_cast<int>(r)+(w/2), 0, static_cast<int>(r+(w/2)), h));
+      }
+      else
+      {
+        // sin tomar en cuenta limites de la imagen
+        float m = -cos(theta) / sin(theta);
+        float b = r / sin(theta);
+        //cout << "m: " << m << endl;
+        //cout << "b: " << b << endl;
+        int x0 = get<2>(cpuht->at(i)) + (w/2);
+        int y0 = -get<3>(cpuht->at(i)) + (h/2);
+        int x1 = w;
+        int y1 = static_cast<int>(m * x1 + b);
+        // con limites de la imagen
+        lines.push_back(make_tuple(x0, y0, x1, y1));
+        // lineas del otro lado
+        x0 = get<2>(cpuht->at(i)) + (w/2);
+        y0 = -get<3>(cpuht->at(i)) + (h/2);
+        x1 = 0;
+        y1 = static_cast<int>(m * x1 + b);
+        lines.push_back(make_tuple(x0, y0, x1, y1));
+      }
+    }
+  }
+  /////////////////////////////////////////////////////////
+  //cimg_library::CImg<unsigned char> image("./cuadrosHough.pgm");
+  cimg_library::CImg<unsigned char> image(w, h, 1, 3, 255);
+  
+  if (image.is_empty()) {
+      std::cout << "Could not open or find the image." << std::endl;
+      return -1;
+  }
+  
+  // Draw lines on the image
+  //int x0 = 100, y0 = 100, x1 = 200, y1 = 200;
+  const unsigned char red[] = { 255,0,0 };
+  const float opacity = 1;
+  //const unsigned int pattern = ~0U;
+  //image.draw_line(x0,y0,x1,y1,red,opacity);
+  for (auto line : lines)
+  {
+    image.draw_line(get<0>(line), get<1>(line), get<2>(line), get<3>(line), red, opacity);
+  }
+  /*int j;
+  for (i = 0; i < w; i++) {
+    for (j = 0; j < h; j++) {
+      int idx = j * w + i;
+      ////cout << (int)inImg.pixels[idx] << " ";
+      if (inImg.pixels[idx] >= 50) {
+        image(i, j, 0) = 0;
+        image(i, j, 1) = 255;
+        image(i, j, 2) = 0;
+      }
+    }
+  }*/
+
+  // Save the modified image to a new file
+  image.save("test.bmp");
+  
+  std::cout << "Image processing complete." << std::endl;
+  //////////////////////////////////////////////////////
 
   // pre-compute values to be stored
   float *pcCos = (float *) malloc (sizeof (float) * degreeBins);
@@ -138,7 +262,7 @@ int main (int argc, char **argv)
     rad += radInc;
   }
 
-  float rMax = sqrt (1.0 * w * w + 1.0 * h * h) / 2;
+  //float rMax = sqrt (1.0 * w * w + 1.0 * h * h) / 2;
   float rScale = 2 * rMax / rBins;
 
   // TODO eventualmente volver memoria global
@@ -167,11 +291,11 @@ int main (int argc, char **argv)
   cudaMemcpy (h_hough, d_hough, sizeof (int) * degreeBins * rBins, cudaMemcpyDeviceToHost);
 
   // compare CPU and GPU results
-  for (i = 0; i < degreeBins * rBins; i++)
+  /*for (i = 0; i < degreeBins * rBins; i++)
   {
     if (cpuht[i] != h_hough[i])
       printf ("Calculation mismatch at : %i %i %i\n", i, cpuht[i], h_hough[i]);
-  }
+  }*/
   printf("Done!\n");
 
   // imprimir pixeles en imagen
@@ -180,12 +304,6 @@ int main (int argc, char **argv)
   outImg.write(argv[2]);
 
   // TODO clean-up
-  cudaFree (d_in);
-  cudaFree (d_hough);
-  free (h_hough);
-  free (cpuht);
-  free (pcCos);
-  free (pcSin);
-
+  
   return 0;
 }

@@ -40,6 +40,9 @@
     "cmath": "cpp",
     "*.tcc": "cpp",
     "istream": "cpp",
-    "streambuf": "cpp"
+    "streambuf": "cpp",
+    "ostream": "cpp",
+    "vector": "cpp",
+    "tuple": "cpp"
   }
 }
