@@ -62,6 +62,7 @@ void CPU_HoughTran (unsigned char *pic, int w, int h, vector<tuple<int, int, int
         {
           //cout << "------------------------------------" << endl;
           float theta = tIdx * radInc;
+            
           //cout << "theta: " << theta << endl;
           float r = xCoord * cos (theta) + yCoord * sin (theta);
           //cout << "r: " << r << endl;
@@ -79,10 +80,13 @@ void CPU_HoughTran (unsigned char *pic, int w, int h, vector<tuple<int, int, int
         /*if (i == (w/2)) {
           continueloop = false;
         }*/
-        continueloop = false;
+        //continueloop = false;
       }
     }
   }
+}
+bool compareTuples(const tuple<int, int, int, int, int>& a, const tuple<int, int, int, int, int>& b) {
+    return get<4>(a) > get<4>(b); // Sort in descending order
 }
 
 //*****************************************************************
@@ -168,13 +172,15 @@ int main (int argc, char **argv)
   CPU_HoughTran(inImg.pixels, w, h, cpuht);
 
   //////////////////////////////////////////////////// test
-  vector<tuple<int, int, int, int>> lines;
-  int threshold = 0;
+  vector<tuple<int, int, int, int, int>> lines; // posX0, posY0, posX1, posY1
+  vector<tuple<int, int, int, int>> linesTop; // posX0, posY0, posX1, posY1
+
+  int threshold = 50;
   float rMax = sqrt (1.0 * w * w + 1.0 * h * h) / 2;
   //cout << "Empieza a buscar lineas" << endl;
   for (i = 0; i < degreeBins * rBins; i++)
   {
-    //cout << "vote at: " << i << ": " << get<4>(cpuht->at(i)) << endl;
+    // cout << "vote at: " << i << ": " << get<4>(cpuht->at(i)) << endl;
     if (get<4>(cpuht->at(i)) > threshold)
     {
       //cout << "------------------------------------" << endl;
@@ -189,27 +195,57 @@ int main (int argc, char **argv)
       // si theta es 0, entonces es una linea vertical
       if (theta == 0.0)
       {
-        lines.push_back(make_tuple(static_cast<int>(r)+(w/2), 0, static_cast<int>(r+(w/2)), h));
+        int personalVote = static_cast<int>(get<4>(cpuht->at(i)));
+        lines.push_back(make_tuple(static_cast<int>(r)+(w/2), 0, static_cast<int>(r+(w/2)), h, personalVote));
       }
       else
       {
         // sin tomar en cuenta limites de la imagen
-        float m = -cos(theta) / sin(theta);
+        float m = round(-cos(theta) / sin(theta));
         float b = r / sin(theta);
+
+        if (m == 0.0) { // horizontal line
+          float b = r / sin(theta);
+
+          int x0 = get<2>(cpuht->at(i)) + (w/2);
+          int y0 = b;
+          int x1 = get<2>(cpuht->at(i)) + (w/2);
+          int y1 = static_cast<int>(b);
+
+          int personalVote = static_cast<int>(get<4>(cpuht->at(i)));
+          lines.push_back(make_tuple(x0, y0, x1, y1, personalVote));
+
+          x0 = get<2>(cpuht->at(i)) + (w/2);
+          y0 = static_cast<int>(x0 + b);
+          y1 = static_cast<int>(b);
+          x1 = get<2>(cpuht->at(i)) + (w/2);
+          
+
+          lines.push_back(make_tuple(x0, y0, x1, y1, personalVote));
+
+
+          continue;
+        }
         //cout << "m: " << m << endl;
         //cout << "b: " << b << endl;
         int x0 = get<2>(cpuht->at(i)) + (w/2);
         int y0 = -get<3>(cpuht->at(i)) + (h/2);
         int x1 = w;
-        int y1 = static_cast<int>(m * x1 + b);
+        int y1 = static_cast<int>((m * x1 + b));
         // con limites de la imagen
-        lines.push_back(make_tuple(x0, y0, x1, y1));
+        int personalVote = static_cast<int>(get<4>(cpuht->at(i)));
+        lines.push_back(make_tuple(x0, y0, x1, y1, personalVote));
         // lineas del otro lado
+        // cout << " line 1 " << x0 << " " << y0 << " " << x1 << " " << y1 << endl;
         x0 = get<2>(cpuht->at(i)) + (w/2);
         y0 = -get<3>(cpuht->at(i)) + (h/2);
-        x1 = 0;
-        y1 = static_cast<int>(m * x1 + b);
-        lines.push_back(make_tuple(x0, y0, x1, y1));
+ 
+        y1 = static_cast<int>((m * x0 + b));
+        cout << "pendiente negativa"<< m;
+        x1 = static_cast<int>(((y1 - b)/m));
+        // cout << " line 2 " << x0 << " " << y0 << " " << x1 << " " << y1 << endl;
+
+        lines.push_back(make_tuple(x0, y0, x1, y1, personalVote));
       }
     }
   }
@@ -225,13 +261,31 @@ int main (int argc, char **argv)
   // Draw lines on the image
   //int x0 = 100, y0 = 100, x1 = 200, y1 = 200;
   const unsigned char red[] = { 255,0,0 };
+  const unsigned char black[] = { 0,0,0 };
+
   const float opacity = 1;
   //const unsigned int pattern = ~0U;
   //image.draw_line(x0,y0,x1,y1,red,opacity);
-  for (auto line : lines)
-  {
-    image.draw_line(get<0>(line), get<1>(line), get<2>(line), get<3>(line), red, opacity);
+ 
+
+  sort(lines.begin(), lines.end(), compareTuples);
+  for (const auto& tuple : lines) {
+      cout << "Valor: " << get<4>(tuple) << endl;
   }
+
+  for (size_t i = 0; i < 4; i++)
+  {
+      cout << " line 1 " << get<0>(lines[i]) << " " << get<1>(lines[i]) << " " << get<2>(lines[i]) << " " << get<3>(lines[i]) << endl;
+    image.draw_line(get<0>(lines[i]), get<1>(lines[i]), get<2>(lines[i]), get<3>(lines[i]), red, opacity);
+  }
+  
+  // image.draw_line(42, 141, 0, -1701, black, opacity);
+
+  // for (auto line : lines)
+  // {
+  //   image.draw_line(get<0>(line), get<1>(line), get<2>(line), get<3>(line), red, opacity);
+  // }
+
   /*int j;
   for (i = 0; i < w; i++) {
     for (j = 0; j < h; j++) {
