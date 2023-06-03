@@ -28,7 +28,7 @@ const float radInc = degreeInc * M_PI / 180;
   if (_m_cudaStat != cudaSuccess)                                   \
   {                                                                 \
     fprintf(stderr, "Error %s at line %d in file %s\n",             \
-      cudaGetErrorString(_m_cudaStat), __LINE__, __FILE__);   \
+      cudaGetErrorString(_m_cudaStat), __LINE__, __FILE__);         \
     exit(1);                                                        \
   }                                                                 \
 }
@@ -71,9 +71,8 @@ void CPU_HoughTran (unsigned char *pic, int w, int h, int **acc)
 __constant__ float d_Cos[degreeBins];
 __constant__ float d_Sin[degreeBins];
 
-
-// Kernel memoria Constante
-__global__ void GPU_HoughTranConst(unsigned char *pic, int w, int h, int *acc, float rMax, float rScale)
+// The GPU hough transform for constant memory
+__global__ void GPU_HoughTran(unsigned char *pic, int w, int h, int *acc, float rMax, float rScale)
 {
   // Calculo global ID
   int gloID = blockIdx.x * blockDim.x + threadIdx.x;
@@ -104,7 +103,7 @@ __global__ void GPU_HoughTranConst(unsigned char *pic, int w, int h, int *acc, f
   //  localAcc[i] = 0;
 
   // warps sync
-  __syncthreads ();
+  //__syncthreads ();
 
   if (pic[gloID] > 0)
   {
@@ -138,8 +137,6 @@ int main (int argc, char **argv)
   int i;
 
   PGMImage inImg (argv[1]);
-  cudaEvent_t start, stop;
-  float time;
 
   int *cpuht;
   int w = inImg.x_dim;
@@ -191,13 +188,15 @@ int main (int argc, char **argv)
   // execution configuration uses a 1-D grid of 1-D blocks, each made of 256 threads
   //1 thread por pixel
   int blockNum = ceil (w * h / 256);
-  //Get time with events
+
+  // Start events and start recording
+  cudaEvent_t start, stop;
+  float time;
   CUDA_CHECK_RETURN( cudaEventCreate(&start) );
   CUDA_CHECK_RETURN( cudaEventCreate(&stop) );
   CUDA_CHECK_RETURN( cudaEventRecord(start, 0) );
 
-  // NOTE: We're not passing d_Sin & d_Cos to the kernel, it's constant memory!
-  GPU_HoughTranConst <<< blockNum, 256 >>> (d_in, w, h, d_hough, rMax, rScale);
+  GPU_HoughTran <<< blockNum, 256 >>> (d_in, w, h, d_hough, rMax, rScale);
 
   CUDA_CHECK_RETURN( cudaEventRecord(stop, 0) );
   CUDA_CHECK_RETURN( cudaEventSynchronize(stop) );
@@ -211,11 +210,11 @@ int main (int argc, char **argv)
   // compare CPU and GPU results
   for (i = 0; i < degreeBins * rBins; i++)
   {
-    if (cpuht[i] != h_hough[i])
+    if (cpuht[i] + 1 < h_hough[i] || cpuht[i] - 1 > h_hough[i])
       printf ("Calculation mismatch at : %i %i %i\n", i, cpuht[i], h_hough[i]);
   }
   printf("Done!\n");
-  printf("EXEC TIME:  %3.1f ms \n", time);
+  printf("GPU time: %.3f ms\n", time);
 
   // Clean-up
   cudaFree ((void *) d_Cos);

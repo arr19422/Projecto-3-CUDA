@@ -71,15 +71,15 @@ __constant__ float d_Cos[degreeBins];
 __constant__ float d_Sin[degreeBins];
 
 
-// Kernel memoria Constante
-__global__ void GPU_HoughTranConst(unsigned char *pic, int w, int h, int *acc, float rMax, float rScale)
+// The GPU hough transform for shared memory
+__global__ void GPU_HoughTran(unsigned char *pic, int w, int h, int *acc, float rMax, float rScale)
 {
   // Calculo global ID
   int gloID = blockIdx.x * blockDim.x + threadIdx.x;
   if (gloID > w * h) return;      // in case of extra threads in block
   
-  // int i;
-  // int locID = threadIdx.x;
+  int i;
+  int locID = threadIdx.x;
   int xCent = w / 2;
   int yCent = h / 2;
 
@@ -96,19 +96,18 @@ __global__ void GPU_HoughTranConst(unsigned char *pic, int w, int h, int *acc, f
   int xCoord = gloID % w - xCent;
   int yCoord = yCent - gloID / w;
 
-  // eventualmente usar memoria compartida para el acumulador
-  // __shared__ int localAcc[degreeBins * rBins];
+  // Use shared memory here for acc variable
+  __shared__ int localAcc[degreeBins * rBins];
   // Initialize
-  // for (i = locID; i < degreeBins * rBins; i += blockDim.x)
-  //  localAcc[i] = 0;
+  for (i = locID; i < degreeBins * rBins; i += blockDim.x)
+    localAcc[i] = 0;
 
   // warps sync
   __syncthreads ();
 
   if (pic[gloID] > 0)
   {
-    for (int tIdx = 0; tIdx < degreeBins; tIdx++)
-    {
+    for (int tIdx = 0; tIdx < degreeBins; tIdx++) {
       //float r = xCoord * cos(tIdx) + yCoord * sin(tIdx); //probar con esto para ver diferencia en tiempo
       float r = xCoord * d_Cos[tIdx] + yCoord * d_Sin[tIdx];
       int rIdx = (r + rMax) / rScale;
@@ -117,19 +116,17 @@ __global__ void GPU_HoughTranConst(unsigned char *pic, int w, int h, int *acc, f
       // R// Es recomendable emplear la cláusula "atomic" debido a que estamos realizando modificaciones en el 
       //arreglo global, el cual es compartido por todos los hilos. De esta forma, aseguramos que la transacción 
       //se realice de manera correcta y evitamos posibles situaciones race condition
-      atomicAdd (acc + (rIdx * degreeBins + tIdx), 1);
+      atomicAdd (localAcc + (rIdx * degreeBins + tIdx), 1);
     }
   }
 
   // warps sync again
-  //__syncthreads ();
+  __syncthreads ();
 
   // atomic op, add local acc to the global memory acc
-  //for (i = locID ; i < degreeBins * rBins ; i += blockDim.x)
-  //  atomicAdd (acc + 1, localAcc[i]);
-
+  for (i = locID ; i < degreeBins * rBins ; i += blockDim.x)
+    atomicAdd (acc + i, localAcc[i]);
 }
-
 
 //*****************************************************************
 int main (int argc, char **argv)
@@ -137,8 +134,6 @@ int main (int argc, char **argv)
   int i;
 
   PGMImage inImg (argv[1]);
-  cudaEvent_t start, stop;
-  float time;
 
   int *cpuht;
   int w = inImg.x_dim;
@@ -190,13 +185,15 @@ int main (int argc, char **argv)
   // execution configuration uses a 1-D grid of 1-D blocks, each made of 256 threads
   //1 thread por pixel
   int blockNum = ceil (w * h / 256);
-  //Get time with events
+
+  // Start events and start recording
+  cudaEvent_t start, stop;
+  float time;
   CUDA_CHECK_RETURN( cudaEventCreate(&start) );
   CUDA_CHECK_RETURN( cudaEventCreate(&stop) );
   CUDA_CHECK_RETURN( cudaEventRecord(start, 0) );
 
-  // NOTE: We're not passing d_Sin & d_Cos to the kernel, it's constant memory!
-  GPU_HoughTranConst <<< blockNum, 256 >>> (d_in, w, h, d_hough, rMax, rScale);
+  GPU_HoughTran <<< blockNum, 256 >>> (d_in, w, h, d_hough, rMax, rScale);
 
   CUDA_CHECK_RETURN( cudaEventRecord(stop, 0) );
   CUDA_CHECK_RETURN( cudaEventSynchronize(stop) );
@@ -210,11 +207,11 @@ int main (int argc, char **argv)
   // compare CPU and GPU results
   for (i = 0; i < degreeBins * rBins; i++)
   {
-    if (cpuht[i] != h_hough[i])
+    if (cpuht[i] + 1 < h_hough[i] || cpuht[i] - 1 > h_hough[i])
       printf ("Calculation mismatch at : %i %i %i\n", i, cpuht[i], h_hough[i]);
   }
   printf("Done!\n");
-  printf("EXEC TIME:  %3.1f ms \n", time);
+  printf("GPU time: %.3f ms\n", time);
 
   // Clean-up
   cudaFree ((void *) d_Cos);

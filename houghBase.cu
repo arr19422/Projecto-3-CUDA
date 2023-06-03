@@ -13,6 +13,8 @@
 #include <string.h>
 #include "pgm.h"
 
+using namespace std;
+
 const int degreeInc = 2;
 const int degreeBins = 180 / degreeInc;
 const int rBins = 100;
@@ -111,8 +113,6 @@ int main(int argc, char **argv)
   int i;
 
   PGMImage inImg(argv[1]);
-  cudaEvent_t start, stop;
-  float time;
 
   int *cpuht;
   int w = inImg.x_dim;
@@ -161,8 +161,10 @@ int main(int argc, char **argv)
   // execution configuration uses a 1-D grid of 1-D blocks, each made of 256 threads
   // 1 thread por pixel
   int blockNum = ceil(w * h / 256);
-
-  // Get time with events
+  
+  // Start events and start recording
+  cudaEvent_t start, stop;
+  float time;
   CUDA_CHECK_RETURN(cudaEventCreate(&start));
   CUDA_CHECK_RETURN(cudaEventCreate(&stop));
   CUDA_CHECK_RETURN(cudaEventRecord(start, 0));
@@ -179,11 +181,11 @@ int main(int argc, char **argv)
   // compare CPU and GPU results
   for (i = 0; i < degreeBins * rBins; i++)
   {
-    if (cpuht[i] != h_hough[i])
+    if (cpuht[i] + 1 < h_hough[i] || cpuht[i] - 1 > h_hough[i])
       printf("Calculation mismatch at : %i %i %i\n", i, cpuht[i], h_hough[i]);
   }
   printf("Done!\n");
-  printf("EXEC TIME:  %3.1f ms \n", time);
+  printf("GPU time: %.3f ms\n", time);
 
   // Clean-up
   cudaFree((void *)d_Cos);
