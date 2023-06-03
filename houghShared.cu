@@ -211,7 +211,7 @@ int main (int argc, char **argv)
       printf ("Calculation mismatch at : %i %i %i\n", i, cpuht[i], h_hough[i]);
   }
   printf("Done!\n");
-  printf("GPU time: %.3f ms\n", time);
+  printf("GPU time: %.5f ms\n", time);
 
   // Clean-up
   cudaFree ((void *) d_Cos);
